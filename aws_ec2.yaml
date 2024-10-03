@@ -1,0 +1,10 @@
+plugin: aws_ec2
+regions:
+  - us-east-1  # Specify the region of your instances
+filters:
+  "tag:ansible": "docker-wordpress"  # Only include instances with this specific tag
+keyed_groups:
+  - key: tags.ansible
+    prefix: docker-wordpress
+hostnames:
+  - ip-address  # Use public IP address as the hostname

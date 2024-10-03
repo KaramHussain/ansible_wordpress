@@ -1,0 +1,98 @@
+---
+- hosts: managed_nodes
+  become: true
+  vars_prompt:
+    # Prompt for MySQL root password (hidden input)
+    - name: "db_root_password"
+      prompt: "Enter MySQL root password"
+      private: yes
+
+    # Prompt for WordPress database name
+    - name: "db_name"
+      prompt: "Enter WordPress database name"
+      private: no
+
+    # Prompt for WordPress database user
+    - name: "db_user"
+      prompt: "Enter WordPress database user"
+      private: no
+
+    # Prompt for WordPress database password (hidden input)
+    - name: "db_password"
+      prompt: "Enter WordPress database password"
+      private: yes
+
+  tasks:
+    - name: Update apt cache and install Docker dependencies
+      apt:
+        update_cache: yes
+        name: ['apt-transport-https', 'ca-certificates', 'curl', 'gnupg', 'lsb-release']
+        state: present
+
+    - name: Add Docker’s official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker APT repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu "{{ ansible_distribution_release }}" stable
+        state: present
+
+    - name: Install Docker and Docker-Compose
+      apt:
+        name: ['docker-ce', 'docker-ce-cli', 'containerd.io', 'docker-compose-plugin']
+        state: present
+      update_cache: yes
+
+    - name: Ensure Docker is started and enabled
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create a Docker network for WordPress and MySQL
+      docker_network:
+        name: wordpress_network
+
+    - name: Run MySQL container for WordPress
+      docker_container:
+        name: mysql
+        image: mysql:5.7
+        state: started
+        restart_policy: always
+        env:
+          MYSQL_ROOT_PASSWORD: "{{ db_root_password }}"
+          MYSQL_DATABASE: "{{ db_name }}"
+          MYSQL_USER: "{{ db_user }}"
+          MYSQL_PASSWORD: "{{ db_password }}"
+        networks:
+          - name: wordpress_network
+        healthcheck:
+          test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+          interval: 30s
+          retries: 3
+          timeout: 10s
+          start_period: 10s
+
+    - name: Run WordPress container linked to MySQL
+      docker_container:
+        name: wordpress
+        image: wordpress:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "8080:80"
+        env:
+          WORDPRESS_DB_HOST: mysql:3306
+          WORDPRESS_DB_NAME: "{{ db_name }}"
+          WORDPRESS_DB_USER: "{{ db_user }}"
+          WORDPRESS_DB_PASSWORD: "{{ db_password }}"
+        networks:
+          - name: wordpress_network
+        healthcheck:
+          test: ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+          interval: 30s
+          retries: 5
+          timeout: 10s
+          start_period: 15s
